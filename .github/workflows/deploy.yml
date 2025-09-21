@@ -1,0 +1,19 @@
+name: Simple Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Deploy Status
+      run: |
+        echo "✅ Code pushed to GitHub successfully"
+        echo "📋 Ready for manual server deployment"
+        echo "🎯 Server: analysis.aiagent.in.ua"
+        echo "📝 Use simple_deploy.sh for instructions"
