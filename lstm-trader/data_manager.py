@@ -1,104 +1,85 @@
 #!/usr/bin/env python3
 """
 🔄 Real Forex Data Manager
-Collects historical data from Alpha Vantage API and stores in PostgreSQL
+Collects historical data from Yahoo Finance and stores in an SQLite database.
 """
 
 import os
 import sys
 import time
-import json
-import requests
-import psycopg2
+import sqlite3
 from datetime import datetime, timedelta
 import pandas as pd
+import yfinance as yf
+from dotenv import load_dotenv
+
+# Завантажуємо змінні середовища з .env файлу (хоча для yfinance вони не потрібні)
+load_dotenv()
 
 class ForexDataManager:
-    def __init__(self, db_config=None):
-        """Initialize data manager with database configuration"""
-        self.db_config = db_config or {
-            'host': 'localhost',
-            'database': 'aiagent1_forex_lstm',
-            'user': 'aiagent1',
-            'password': os.getenv('POSTGRES_PASSWORD', '')
-        }
-
-        # Alpha Vantage API configuration
-        self.api_key = os.getenv('ALPHA_VANTAGE_KEY', 'demo')
-        self.base_url = 'https://www.alphavantage.co/query'
+    def __init__(self, db_file="forex_data.db"):
+        """Initialize data manager with SQLite database file"""
+        self.db_file = db_file
+        self.get_db_connection() # Initialize DB if not exists
 
         # Supported pairs and timeframes
         self.forex_pairs = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCHF', 'USDCAD']
+        # yfinance uses different interval codes
         self.timeframes = {
-            'D1': {'function': 'FX_DAILY', 'interval': None},
-            'H4': {'function': 'FX_INTRADAY', 'interval': '60min'},  # Closest to H4
-            'H1': {'function': 'FX_INTRADAY', 'interval': '60min'},
-            'M30': {'function': 'FX_INTRADAY', 'interval': '30min'},
-            'M15': {'function': 'FX_INTRADAY', 'interval': '15min'}
+            'D1': '1d',
+            'H4': '4h',
+            'H1': '1h',
+            'M30': '30m',
+            'M15': '15m'
         }
 
     def get_db_connection(self):
-        """Create database connection"""
+        """Create database connection to the SQLite file."""
         try:
-            conn = psycopg2.connect(**self.db_config)
+            conn = sqlite3.connect(self.db_file)
             return conn
         except Exception as e:
             print(f"❌ Database connection error: {e}")
             return None
 
-    def fetch_forex_data(self, pair, timeframe='D1', outputsize='full'):
-        """Fetch forex data from Alpha Vantage API"""
-        print(f"📊 Fetching {pair} data for {timeframe}...")
+    def fetch_forex_data(self, pair, timeframe_key='D1', period="5y"):
+        """Fetch forex data from Yahoo Finance API"""
+        print(f"📊 Fetching {pair} data for timeframe {timeframe_key} using yfinance...")
+        
+        interval = self.timeframes.get(timeframe_key, '1d')
+        ticker = f"{pair}=X"
 
-        # Get timeframe configuration
-        tf_config = self.timeframes.get(timeframe, self.timeframes['D1'])
-
-        # Build API parameters
-        params = {
-            'function': tf_config['function'],
-            'from_symbol': pair[:3],
-            'to_symbol': pair[3:],
-            'apikey': self.api_key,
-            'outputsize': outputsize
-        }
-
-        # Add interval for intraday data
-        if tf_config['interval']:
-            params['interval'] = tf_config['interval']
+        # yfinance has a 730-day limit for intraday data
+        period_to_fetch = period
+        if interval not in ['1d', '1wk', '1mo']:
+            print("⏳ Adjusting period to 2 years for intraday data...")
+            period_to_fetch = "729d"
 
         try:
-            response = requests.get(self.base_url, params=params, timeout=30)
-            data = response.json()
+            data = yf.download(ticker, period=period_to_fetch, interval=interval, auto_adjust=True, progress=False)
 
-            # Check for API errors
-            if 'Error Message' in data:
-                print(f"❌ API Error: {data['Error Message']}")
+            if data.empty:
+                print(f"❌ No data found for {ticker} with interval {interval}")
                 return None
 
-            if 'Note' in data:
-                print(f"⚠️  API Limit: {data['Note']}")
-                return None
+            # Rename columns to match our schema (lowercase)
+            data.rename(columns={
+                'Open': 'open',
+                'High': 'high',
+                'Low': 'low',
+                'Close': 'close',
+                'Volume': 'volume'
+            }, inplace=True)
 
-            # Extract time series data
-            time_series_key = None
-            for key in data.keys():
-                if 'Time Series' in key:
-                    time_series_key = key
-                    break
-
-            if not time_series_key:
-                print(f"❌ No time series data found for {pair}")
-                return None
-
-            return data[time_series_key]
+            return data
 
         except Exception as e:
             print(f"❌ Error fetching {pair} data: {e}")
             return None
 
-    def store_forex_data(self, pair, timeframe, data):
-        """Store forex data in PostgreSQL database"""
-        if not data:
+    def store_forex_data(self, pair, timeframe_key, data):
+        """Store forex data from a DataFrame in SQLite database"""
+        if data is None or data.empty:
             return 0
 
         conn = self.get_db_connection()
@@ -110,29 +91,30 @@ class ForexDataManager:
 
             # Prepare data for insertion
             records = []
-            for timestamp, prices in data.items():
-                # Parse timestamp
-                dt = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S' if ' ' in timestamp else '%Y-%m-%d')
+            for timestamp, row in data.iterrows():
+                dt_str = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                # Explicitly cast types to prevent binding errors
+                records.append((
+                    pair, 
+                    timeframe_key, 
+                    dt_str, 
+                    float(row['open']), 
+                    float(row['high']), 
+                    float(row['low']), 
+                    float(row['close']), 
+                    int(row['volume'])
+                ))
 
-                # Extract OHLC data
-                open_price = float(prices.get('1. open', 0))
-                high_price = float(prices.get('2. high', 0))
-                low_price = float(prices.get('3. low', 0))
-                close_price = float(prices.get('4. close', 0))
-                volume = int(prices.get('5. volume', 0)) if '5. volume' in prices else 0
-
-                records.append((pair, timeframe, dt, open_price, high_price, low_price, close_price, volume))
-
-            # Insert data with conflict resolution
+            # Insert data with conflict resolution (UPSERT)
             insert_query = """
                 INSERT INTO forex_data (pair, timeframe, timestamp, open, high, low, close, volume)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (pair, timeframe, timestamp) DO UPDATE SET
-                    open = EXCLUDED.open,
-                    high = EXCLUDED.high,
-                    low = EXCLUDED.low,
-                    close = EXCLUDED.close,
-                    volume = EXCLUDED.volume
+                    open = excluded.open,
+                    high = excluded.high,
+                    low = excluded.low,
+                    close = excluded.close,
+                    volume = excluded.volume
             """
 
             cursor.executemany(insert_query, records)
@@ -140,12 +122,12 @@ class ForexDataManager:
             # Log collection results
             log_query = """
                 INSERT INTO data_collection_logs (pair, timeframe, records_added, provider, status)
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (?, ?, ?, ?, ?)
             """
-            cursor.execute(log_query, (pair, timeframe, len(records), 'alpha_vantage', 'success'))
+            cursor.execute(log_query, (pair, timeframe_key, len(records), 'yfinance', 'success'))
 
             conn.commit()
-            print(f"✅ Stored {len(records)} records for {pair} {timeframe}")
+            print(f"✅ Stored {len(records)} records for {pair} {timeframe_key}")
             return len(records)
 
         except Exception as e:
@@ -156,31 +138,30 @@ class ForexDataManager:
         finally:
             conn.close()
 
-    def collect_historical_data(self, pairs=None, timeframes=None, delay=12):
+    def collect_historical_data(self, pairs=None, timeframes=None):
         """Collect historical data for specified pairs and timeframes"""
         pairs = pairs or self.forex_pairs
-        timeframes = timeframes or ['D1', 'H1']  # Start with daily and hourly
+        timeframes = timeframes or ['D1', 'H1']  # Default timeframes to collect
 
         print(f"🚀 Starting data collection for {len(pairs)} pairs and {len(timeframes)} timeframes")
         total_records = 0
 
         for pair in pairs:
-            for timeframe in timeframes:
+            for tf_key in timeframes:
                 try:
                     # Fetch data from API
-                    data = self.fetch_forex_data(pair, timeframe)
+                    data = self.fetch_forex_data(pair, tf_key)
 
-                    if data:
+                    if data is not None:
                         # Store in database
-                        records_added = self.store_forex_data(pair, timeframe, data)
+                        records_added = self.store_forex_data(pair, tf_key, data)
                         total_records += records_added
-
-                    # Respect API rate limits
-                    print(f"⏳ Waiting {delay} seconds...")
-                    time.sleep(delay)
+                    
+                    # Small delay to be polite to the API server
+                    time.sleep(1)
 
                 except Exception as e:
-                    print(f"❌ Error processing {pair} {timeframe}: {e}")
+                    print(f"❌ Error processing {pair} {tf_key}: {e}")
                     continue
 
         print(f"🎉 Data collection completed! Total records: {total_records}")
@@ -217,7 +198,8 @@ class ForexDataManager:
             for row in results:
                 pair, timeframe, count, earliest, latest = row
                 total_records += count
-                print(f"{pair:<8} {timeframe:<10} {count:<10} {earliest.strftime('%Y-%m-%d'):<12} {latest.strftime('%Y-%m-%d'):<12}")
+                # Timestamps from SQLite are strings, print them directly
+                print(f"{pair:<8} {timeframe:<10} {count:<10} {earliest.split(' ')[0]:<12} {latest.split(' ')[0]:<12}")
 
             print("-" * 70)
             print(f"Total records: {total_records}")

@@ -1,19 +1,27 @@
-name: Simple Deploy
+name: Deploy to Production Server
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main # Trigger the workflow on pushes to the main branch
 
 jobs:
   deploy:
+    name: Deploy
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Deploy Status
-      run: |
-        echo "✅ Code pushed to GitHub successfully"
-        echo "📋 Ready for manual server deployment"
-        echo "🎯 Server: analysis.aiagent.in.ua"
-        echo "📝 Use simple_deploy.sh for instructions"
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }} # Server IP or hostname
+          username: ${{ secrets.SSH_USERNAME }} # SSH username
+          key: ${{ secrets.SSH_KEY }} # Private SSH key
+          script: |
+            # Make the deploy script executable and run it
+            cd /home/aiagent1/domains/analysis.aiagent.in.ua/public_html/FC1
+            chmod +x deploy/deploy.sh
+            ./deploy/deploy.sh

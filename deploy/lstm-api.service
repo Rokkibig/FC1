@@ -1,0 +1,23 @@
+[Unit]
+Description=Gunicorn instance to serve LSTM Forex Predictor API
+After=network.target
+
+[Service]
+# Replace with the actual user and group that should run the service
+User=aiagent1
+Group=aiagent1
+
+# The directory where the project is located
+# The path is based on the simple_deploy.sh script
+WorkingDirectory=/home/aiagent1/domains/analysis.aiagent.in.ua/public_html/FC1
+
+# The command to start the Gunicorn server
+# It assumes a virtual environment `lstm_env` exists in the project root
+# It binds to a Unix socket for communication with a web server like Nginx
+ExecStart=/home/aiagent1/domains/analysis.aiagent.in.ua/public_html/FC1/lstm_env/bin/gunicorn --workers 3 --bind unix:lstm-api.sock -m 007 wsgi:app
+
+# Restart the service if it fails
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

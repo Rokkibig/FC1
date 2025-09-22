@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
 🧠 Real LSTM Model Trainer
-Advanced neural network training for forex prediction
+Advanced neural network training for forex prediction using an SQLite database.
 """
 
 import os
 import sys
 import numpy as np
 import pandas as pd
-import psycopg2
+import sqlite3
 from datetime import datetime, timedelta
 import pickle
 import json
+from dotenv import load_dotenv
+
+# Завантажуємо змінні середовища з .env файлу
+load_dotenv()
 
 # TensorFlow imports
 try:
@@ -28,14 +32,9 @@ except ImportError as e:
     print("💡 Install with: pip install tensorflow scikit-learn")
 
 class LSTMForexTrainer:
-    def __init__(self, db_config=None):
-        """Initialize LSTM trainer"""
-        self.db_config = db_config or {
-            'host': 'localhost',
-            'database': 'aiagent1_forex_lstm',
-            'user': 'aiagent1',
-            'password': os.getenv('POSTGRES_PASSWORD', '')
-        }
+    def __init__(self, db_file="forex_data.db"):
+        """Initialize LSTM trainer with SQLite database file"""
+        self.db_file = db_file
 
         # Model parameters
         self.sequence_length = 60  # 60 time steps for prediction
@@ -57,15 +56,15 @@ class LSTMForexTrainer:
         os.makedirs(self.scalers_dir, exist_ok=True)
 
     def get_db_connection(self):
-        """Get database connection"""
+        """Get database connection to SQLite file"""
         try:
-            return psycopg2.connect(**self.db_config)
+            return sqlite3.connect(self.db_file)
         except Exception as e:
             print(f"❌ Database connection error: {e}")
             return None
 
     def fetch_training_data(self, pair, timeframe, limit=10000):
-        """Fetch training data from database"""
+        """Fetch training data from SQLite database"""
         conn = self.get_db_connection()
         if not conn:
             return None
@@ -74,9 +73,9 @@ class LSTMForexTrainer:
             query = """
                 SELECT timestamp, open, high, low, close, volume
                 FROM forex_data
-                WHERE pair = %s AND timeframe = %s
+                WHERE pair = ? AND timeframe = ?
                 ORDER BY timestamp DESC
-                LIMIT %s
+                LIMIT ?
             """
 
             df = pd.read_sql_query(query, conn, params=(pair, timeframe, limit))
@@ -97,13 +96,16 @@ class LSTMForexTrainer:
             print(f"❌ Error fetching training data: {e}")
             return None
         finally:
-            conn.close()
+            if conn:
+                conn.close()
 
     def prepare_features(self, df):
         """Prepare features for LSTM training"""
         try:
             # Create technical indicators
             df = df.copy()
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.set_index('timestamp')
 
             # Price-based features
             df['price_change'] = df['close'].pct_change()
@@ -122,12 +124,14 @@ class LSTMForexTrainer:
             delta = df['close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
+            # Add epsilon to prevent division by zero
+            rs = gain / (loss + 1e-9)
             df['rsi'] = 100 - (100 / (1 + rs))
 
             # Volume indicators
             df['volume_ma'] = df['volume'].rolling(window=20).mean()
-            df['volume_ratio'] = df['volume'] / df['volume_ma']
+            # Add epsilon to prevent division by zero
+            df['volume_ratio'] = df['volume'] / (df['volume_ma'] + 1e-9)
 
             # Select final features
             feature_columns = [
@@ -136,8 +140,10 @@ class LSTMForexTrainer:
                 'ma_5', 'ma_20', 'ma_50', 'volatility', 'rsi',
                 'volume_ratio'
             ]
-
-            # Remove rows with NaN values
+            
+            # Replace infinite values with NaN before dropping
+            df.replace([np.inf, -np.inf], np.nan, inplace=True)
+            # Remove rows with any NaN values
             df = df.dropna()
 
             print(f"✅ Prepared {len(df)} samples with {len(feature_columns)} features")
@@ -151,13 +157,14 @@ class LSTMForexTrainer:
         """Create sequences for LSTM training"""
         try:
             X, y = [], []
+            data_np = data.to_numpy()
 
             for i in range(self.sequence_length, len(data)):
                 # Input sequence
-                X.append(data[i-self.sequence_length:i])
+                X.append(data_np[i-self.sequence_length:i, :])
 
                 # Target (next close price)
-                y.append(data[i][data.columns.get_loc(target_column)])
+                y.append(data_np[i, data.columns.get_loc(target_column)])
 
             return np.array(X), np.array(y)
 
@@ -294,7 +301,7 @@ class LSTMForexTrainer:
         return model_path
 
     def save_model_to_db(self, pair, timeframe, model_path, loss, training_samples):
-        """Save model metadata to database"""
+        """Save model metadata to SQLite database"""
         conn = self.get_db_connection()
         if not conn:
             return
@@ -306,13 +313,13 @@ class LSTMForexTrainer:
             cursor.execute("""
                 UPDATE lstm_models
                 SET is_active = FALSE
-                WHERE pair = %s AND timeframe = %s AND is_active = TRUE
+                WHERE pair = ? AND timeframe = ? AND is_active = TRUE
             """, (pair, timeframe))
 
             # Insert new model
             cursor.execute("""
                 INSERT INTO lstm_models (pair, timeframe, model_path, loss, training_samples)
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (?, ?, ?, ?, ?)
             """, (pair, timeframe, model_path, loss, training_samples))
 
             conn.commit()
@@ -322,7 +329,33 @@ class LSTMForexTrainer:
             print(f"❌ Error saving model to database: {e}")
             conn.rollback()
         finally:
-            conn.close()
+            if conn:
+                conn.close()
+
+def main():
+    """Main function for command line usage"""
+    print("🧠 LSTM Forex Model Trainer")
+    print("=" * 50)
+
+    trainer = LSTMForexTrainer()
+
+    if len(sys.argv) >= 3:
+        pair = sys.argv[1].upper()
+        timeframe = sys.argv[2].upper()
+
+        print(f"🎯 Training model for {pair} {timeframe}")
+        model_path = trainer.train_model(pair, timeframe)
+
+        if model_path:
+            print(f"🎉 Training completed successfully!")
+        else:
+            print(f"❌ Training failed!")
+    else:
+        print("Usage: python3 model_trainer.py PAIR TIMEFRAME")
+        print("Example: python3 model_trainer.py EURUSD D1")
+
+if __name__ == "__main__":
+    main()
 
 def main():
     """Main function for command line usage"""

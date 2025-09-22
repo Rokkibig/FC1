@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_ccfoXC/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_dh9eSy/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_1Zy5pH/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_0URydd/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_CAOFDk/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_goLJkm/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_rQEgc9/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_6E0IWN/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_E5SkzM/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_wgzPCt/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_vjH6mq/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_3W2q43/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_we1cvt/**)",
+      "Read(//var/folders/hx/cdj86sy10dlcjmgy9w4fy3hr0000gn/T/TemporaryItems/NSIRD_screencaptureui_P9PXNa/**)",
+      "Bash(nslookup:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

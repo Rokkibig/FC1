@@ -1,0 +1,26 @@
+# Environments
+lstm_env/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+
+# Data and models
+forex_data.db
+*.tar.gz
+*.pkl
+*.h5
+
+# SSH keys
+SSH_KEY_CORRECT.txt
+ssh_key_for_directadmin.txt
+
+# Directories
+scalers/
+models/
+saved_models/
+lstm_models/
+collected_data/
